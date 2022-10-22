@@ -12,8 +12,12 @@
 #include <unistd.h>
 #include <stdio.h>
 #include <pthread.h>
+#include <sys/time.h>
+#include<omp.h>
 
 #define MIN(x, y) (((x) < (y)) ? (x) : (y))
+#define cols 100
+#define rows 100
 
 const int window_width = 1000;
 const int window_height = 1000;
@@ -23,10 +27,13 @@ const bool debug = false;
 const bool gospel = false;
 const bool simkin = false;
 
-int board[102][102] = {0};
+int board[cols + 2][rows + 2] = {0};
 int generation = 0;
 int windowID;
 
+float timedifference_msec(struct timeval t0, struct timeval t1) {
+    return (t1.tv_sec - t0.tv_sec) * 1000.0f + (t1.tv_usec - t0.tv_usec) / 1000.0f;
+}
 
 void setup() {
     if (gospel) {
@@ -141,19 +148,17 @@ void calculate() {
 
     int new_board[max_x][max_y];
 
-    for (int i = 1; i < 101; i++) {
-        for (int j = 1; j < 101; j++) {
+#pragma omp parallel for collapse(2)
+    for (int i = 1; i < rows + 1; i++) {
+        for (int j = 1; j < cols + 1; j++) {
             new_board[i][j] = MIN(cellsurvival(i, j), 100);
-            if (debug)
-                printf(" %d ", new_board[i][j]);
         }
-        if (debug)
-            printf("\n");
     }
 
+    // memcpy(dest, src, strlen(src)+1);
 
-    for (int i = 1; i < 101; i++) {
-        for (int j = 1; j < 101; j++) {
+    for (int i = 1; i < rows + 1; i++) {
+        for (int j = 1; j < cols + 1; j++) {
             board[i][j] = new_board[i][j];
         }
     }
@@ -162,8 +167,8 @@ void calculate() {
 void display() {
     glClear(GL_COLOR_BUFFER_BIT);
 
-    for (int i = 1; i < 101; ++i) {
-        for (int j = 1; j < 101; ++j) {
+    for (int i = 1; i < rows + 1; ++i) {
+        for (int j = 1; j < cols + 1; ++j) {
             int age = board[i][j];
             if (age == 0)
                 glColor3f(0.0f, 0.0f, 0.0f);
@@ -187,17 +192,26 @@ void display() {
     glFlush();
 
     char title[32];
-    sprintf(title, "Game of life - Gen %d", generation++);
+    sprintf(title, "Game of life - Gen %d", generation);
     glutSetWindow(windowID);
     glutSetWindowTitle(title);
 }
 
 void *timedThread() {
-    while (true) {
-        usleep(speed_milliseconds * 1000);
+    struct timeval t0;
+    struct timeval t1;
+    gettimeofday(&t0, 0);
 
+    printf("Code started at %f\n", t0);
+
+    for (int i = 0; i < 10000; ++i) {
         calculate();
+        generation++;
     }
+
+    gettimeofday(&t1, 0);
+
+    printf("Code executed in : %d milliseconds\n", ((int)timedifference_msec(t0, t1)));
 }
 
 void on_timer() {
