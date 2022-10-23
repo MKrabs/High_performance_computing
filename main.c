@@ -22,7 +22,7 @@
 const int window_width = 1000;
 const int window_height = 1000;
 const int size = 10;
-const int speed_milliseconds = 100;
+const int g_sleep_milliseconds = 100;
 const bool debug = false;
 const bool gospel = false;
 const bool simkin = false;
@@ -30,6 +30,45 @@ const bool simkin = false;
 int board[cols + 2][rows + 2] = {0};
 int generation = 0;
 int windowID;
+int c_sleep_milliseconds = 100000;
+
+
+void writeVTK2(long timestep, char prefix[1024]) {
+    char filename[2048];
+    int x, y;
+
+    int offsetX = 0;
+    int offsetY = 0;
+    float deltax = 1.0;
+    long nxy = cols * rows * sizeof(float);
+
+    snprintf(filename, sizeof(filename), "%s-%05ld%s", prefix, timestep, ".vti");
+    FILE *fp = fopen(filename, "w");
+
+    fprintf(fp, "<?xml version=\"1.0\"?>\n");
+    fprintf(fp, "<VTKFile type=\"ImageData\" version=\"0.1\" byte_order=\"LittleEndian\" header_type=\"UInt64\">\n");
+    fprintf(fp, "<ImageData WholeExtent=\"%d %d %d %d %d %d\" Origin=\"0 0 0\" Spacing=\"%le %le %le\">\n", offsetX,
+            offsetX + cols, offsetY, offsetY + rows, 0, 0, deltax, deltax, 0.0);
+    fprintf(fp, "<CellData Scalars=\"%s\">\n", prefix);
+    fprintf(fp, "<DataArray type=\"Float32\" Name=\"%s\" format=\"appended\" offset=\"0\"/>\n", prefix);
+    fprintf(fp, "</CellData>\n");
+    fprintf(fp, "</ImageData>\n");
+    fprintf(fp, "<AppendedData encoding=\"raw\">\n");
+    fprintf(fp, "_");
+    fwrite((unsigned char *) &nxy, sizeof(long), 1, fp);
+
+    for (y = 0; y < cols; y++) {
+        for (x = 0; x < rows; x++) {
+            float value = board[x][y];
+            fwrite((unsigned char *) &value, sizeof(float), 1, fp);
+        }
+    }
+
+    fprintf(fp, "\n</AppendedData>\n");
+    fprintf(fp, "</VTKFile>\n");
+    fclose(fp);
+}
+
 
 float timedifference_msec(struct timeval t0, struct timeval t1) {
     return (t1.tv_sec - t0.tv_sec) * 1000.0f + (t1.tv_usec - t0.tv_usec) / 1000.0f;
@@ -206,17 +245,60 @@ void *timedThread() {
 
     for (int i = 0; i < 10000; ++i) {
         calculate();
+        usleep(c_sleep_milliseconds);
+        writeVTK2(i, "gol");
         generation++;
     }
 
     gettimeofday(&t1, 0);
 
-    printf("Code executed in : %d milliseconds\n", ((int)timedifference_msec(t0, t1)));
+    printf("Code executed in : %d milliseconds\n", ((int) timedifference_msec(t0, t1)));
 }
+
+enum MENU_TYPE {
+    SPEED_1,
+    SPEED_2,
+    SPEED_3,
+    SPEED_RESET,
+    NEXT_STEP,
+    STOP,
+    QUIT,
+};
+
+void menu(int id) {
+    switch (id) {
+        case QUIT: exit(0); break;
+        case STOP: c_sleep_milliseconds = 2147483647; break;
+        case NEXT_STEP: calculate(); break;
+        case SPEED_1: c_sleep_milliseconds = 5000; break;
+        case SPEED_2: c_sleep_milliseconds = 500;  break;
+        case SPEED_3: c_sleep_milliseconds = 0;    break;
+
+        default: c_sleep_milliseconds = 100000;    break;
+    }
+}
+
+void createPopUpMenu() {
+    int shrinkMenu = glutCreateMenu(menu);
+    glutAddMenuEntry("5000 ms", SPEED_1);
+    glutAddMenuEntry("500 ms", SPEED_2);
+    glutAddMenuEntry("0 ms", SPEED_3);
+    glutAddMenuEntry("Reset", SPEED_RESET);
+
+    int mainMenu = glutCreateMenu(menu);
+    glutAddMenuEntry("Stop", STOP);
+    glutAddMenuEntry("Next Step", NEXT_STEP);
+    glutAddSubMenu("Time intervall", shrinkMenu);
+    glutAddMenuEntry("Quit", QUIT);
+
+
+    // Associate a mouse button with menu
+    glutAttachMenu(GLUT_RIGHT_BUTTON);
+};
 
 void on_timer() {
     glutPostRedisplay();
-    glutTimerFunc(speed_milliseconds, on_timer, 0);
+    glutTimerFunc(g_sleep_milliseconds, on_timer, 0);
 }
 
 int main(int argc, char **argv) {
@@ -226,8 +308,9 @@ int main(int argc, char **argv) {
     srand(time(NULL)); // NOLINT(cert-msc51-cpp)
     setup();
     init(argc, argv);
+    createPopUpMenu();
     glutDisplayFunc(display);                // Callback-Funktion für das Fenster
-    glutTimerFunc(speed_milliseconds, on_timer, 0);
+    glutTimerFunc(g_sleep_milliseconds, on_timer, 0);
     glutMainLoop();                            // Abgabe der Kontrolle an GLUT-Bibliothek
     return 0;
 }
